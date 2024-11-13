@@ -24,7 +24,7 @@ g_column_index_bits = 10 - (g_tx_offset - int(math.log2(g_channel_width / 8)))
 g_levels_mask_bits = [0, 0, 3, 15, g_column_index_bits]
 # 10 plus 3, 10 bits stand for the block index, 3 bits stand for byte index within a block
 # g_assemble_levels_bits = [0, 1, 2, 2, 16, 13]
-g_assemble_levels_bits = [0, 0, 3, 15, 12]
+g_assemble_levels_bits = [0, 0, 3, 16, 12]
 g_row_level_index = len(g_assemble_levels_bits) - 2
 # how many rows in a subarray
 g_subarray_size = 512
@@ -62,10 +62,11 @@ def address_to_byte_level(address: int) -> list[int]:
 
 # assemble value from different levels to a physical address
 def assemble_address(bit_counts, values):
-    address: int = values[5]
+    size = len(values)
+    address: int = values[size-1]
     current_bit_position = 0
     copy_list: list = copy.deepcopy(values)
-    copy_list.pop(5)
+    copy_list.pop(size-1)
     copy_list.insert(0, -1)
     for bits, value in reversed(list(zip(bit_counts, copy_list))[1:]):
         current_bit_position += bits
@@ -185,7 +186,8 @@ def gen_virtual_traces(cases: list):
 #     [0, 0, 0, 1, 7, 0],
 #     [0, 0, 0, 1, 8, 0],
 # ]
-# gen_virtual_traces(cases)
+cases  = [[0,0,2,1,0]]
+gen_virtual_traces(cases)
 
-address_files_to_byte_level("address.txt")
-traces_file_to_block("mobile_bf.trace")
+# address_files_to_byte_level("address.txt")
+# traces_file_to_block("mobile_bf.trace")
