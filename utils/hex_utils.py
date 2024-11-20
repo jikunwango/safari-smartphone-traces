@@ -10,4 +10,4 @@ def convert_traces_as_hex(file_path: str):
             print(hex_format(int(line)))
 
 
-convert_traces_as_hex("address.txt")
+# convert_traces_as_hex("address.txt")
