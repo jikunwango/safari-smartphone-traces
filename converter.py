@@ -277,8 +277,8 @@ def split_trace_into3():
                         count += 1
 
 
-# split_trace_into3()
-# batch_convert_to4line()
+split_trace_into3()
+batch_convert_to4line()
 
 
 def create_cache_traces_for_ramulator2():
@@ -334,4 +334,4 @@ def create_cache_traces_for_ramulator2():
             ah.save_to_file(traces, output_dir + output_file.format(case))
 
 
-create_cache_traces_for_ramulator2()
+# create_cache_traces_for_ramulator2()
