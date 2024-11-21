@@ -297,8 +297,8 @@ def create_cache_traces_for_ramulator2():
         # 1500000,
     ]
     alternant = True
-    replace_with_rowclone = False
-    for case in range(6):
+    replace_with_rowclone = True
+    for case in range(1):
         trace_file = "inputs/case{}.trace".format(case)
         output_dir = "output/convert/case{}/".format(case)
         for limit in trace_count:
@@ -315,14 +315,14 @@ def create_cache_traces_for_ramulator2():
                 )
             )
             # # 2. save row request to file
-            ah.save_to_file(
-                row_requests,
-                output_dir + "case{}_row_to_bytes_raw_data.txt".format(case),
-            )
+            # ah.save_to_file(
+            #     row_requests,
+            #     output_dir + "case{}_row_to_bytes_raw_data.txt".format(case),
+            # )
             # # 3. convert cache line trace to block level
-            ah.traces_array_to_block(
-                traces, output_dir + "case{}_cache_block_raw_data.txt".format(case)
-            )
+            # ah.traces_array_to_block(
+            #     traces, output_dir + "case{}_cache_block_raw_data.txt".format(case)
+            # )
             # # 4. save the final trace
             if replace_with_rowclone:
                 pre = "rowclone_"
