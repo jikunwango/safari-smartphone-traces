@@ -155,8 +155,14 @@ class CMD4Window:
             self.handle_in_normal_mode()
 
 
-def convert_to_cacheline(file_path: str, limit: int, alternative: bool,replace_with_rowclone:bool):
-    slide_window = CMD4Window(target=limit, alternative=alternative,replace_with_rowclone=replace_with_rowclone)
+def convert_to_cacheline(
+    file_path: str, limit: int, alternative: bool, replace_with_rowclone: bool
+):
+    slide_window = CMD4Window(
+        target=limit,
+        alternative=alternative,
+        replace_with_rowclone=replace_with_rowclone,
+    )
     with open(file_path, "r") as file:
         while True:
             while not slide_window.is_full():
@@ -277,10 +283,6 @@ def split_trace_into3():
                         count += 1
 
 
-split_trace_into3()
-batch_convert_to4line()
-
-
 def create_cache_traces_for_ramulator2():
     trace_count = [
         # 100,
@@ -334,4 +336,6 @@ def create_cache_traces_for_ramulator2():
             ah.save_to_file(traces, output_dir + output_file.format(case))
 
 
-# create_cache_traces_for_ramulator2()
+# split_trace_into3()
+# batch_convert_to4line()
+create_cache_traces_for_ramulator2()
