@@ -298,7 +298,7 @@ def create_cache_traces_for_ramulator2():
     ]
     alternant = True
     replace_with_rowclone = True
-    for case in range(1):
+    for case in range(6):
         trace_file = "inputs/case{}.trace".format(case)
         output_dir = "output/convert/case{}/".format(case)
         for limit in trace_count:
