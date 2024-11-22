@@ -81,7 +81,7 @@ class CMD4Window:
                 cache_lines.append("0 -1 {}".format(wr_cl))
         return cache_lines
 
-    def simple_split_to64(row: CMDLine):
+    def simple_split_to64(row: CMDLine, dma:bool=False):
         cache_lines = []
         if row.op == CMD.READ:
             addr = row.addr1
@@ -94,7 +94,10 @@ class CMD4Window:
             if row.op == CMD.READ:
                 cache_lines.append("0 {}".format(rd_cl))
             else:
-                cache_lines.append("0 -1 {}".format(rd_cl))
+                if dma:
+                    cache_lines.append("0 -2 {}".format(rd_cl))
+                else:
+                    cache_lines.append("0 -1 {}".format(rd_cl))
         return cache_lines
 
     def is_copy_window(self):
@@ -129,7 +132,7 @@ class CMD4Window:
         # if yes, then check if we can replace with a rowclone
         rd_addr = self.win[1].addr1
         wr_addr = self.win[2].addr2
-        self.extend_traces(CMD4Window.simple_split_to64(self.win[0]))
+        self.extend_traces(CMD4Window.simple_split_to64(self.win[0],True))
         if (
             self.replace_with_rowclone
             and rd_addr >> self.subarray_mask_bits == wr_addr >> self.subarray_mask_bits

@@ -149,7 +149,7 @@ def convert_each_line(line: str):
     mem_operation = "RD"
     if size == 3:
         addr_2 = int(items[2])
-        if addr_1 == -1:
+        if addr_1 == -1 or addr_1 == -2:
             mem_operation = "WR"
         else:
             mem_operation = "RC"
