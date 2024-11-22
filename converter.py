@@ -33,7 +33,7 @@ class CMD4Window:
         self.alternative = alternative
         self.row_requests = []
         self.replace_with_rowclone = replace_with_rowclone
-
+        self.error_row_clone = 0
     def is_full(self) -> bool:
         return len(self.win) >= self.cap
 
@@ -135,8 +135,11 @@ class CMD4Window:
             and rd_addr >> self.subarray_mask_bits == wr_addr >> self.subarray_mask_bits
         ):
             # replace with a rowclone command
-            self.traces.append("0 {} {}".format(rd_addr, wr_addr))
-            self.row_clone_count += 1
+            if rd_addr == wr_addr:
+                self.error_row_clone+=1
+            else:
+                self.traces.append("0 {} {}".format(rd_addr, wr_addr))
+                self.row_clone_count += 1
         else:
             # consider consecutive or alternative
             self.extend_traces(
@@ -189,6 +192,7 @@ def convert_to_cacheline(
         len(slide_window.row_requests),
         slide_window.traces,
         slide_window.row_requests,
+        slide_window.error_row_clone
     )
 
 
@@ -261,11 +265,24 @@ def convert_to4line(file_path: str, output_path: str):
 
 def batch_convert_to4line():
     for idx in range(6):
-        convert_to4line(
-            "inputs/case_block{}.trace".format(idx),
-            "inputs/case{}.trace".format(idx),
-        )
-
+        for mode in ["map","unmap"]:
+            convert_to4line(
+                "inputs/{}_case{}.trace".format(mode,idx),
+                "inputs/extend4/{}4_case{}.trace".format(mode,idx),
+            )
+# batch_convert_to4line()
+def slice_file_intoX(file_path:str,pre:str,step:int,num:int):
+        # file_path = "inputs/parent_case{}.trace".format(idx)
+    with open(file_path,"r") as file:
+        for idx in range(num):
+            slide_file_path = "inputs/{}_slide{}.trace".format(pre,idx)
+            count = 0
+            with open(slide_file_path, "w") as out:
+                    while file.readable() and count < step:
+                        out.write(file.readline())
+                        count += 1
+# for file in ["parent_case1.trace","parent_case2.trace","remap.trace"]:
+#     slice_file_intoX("inputs/"+file,file,30000,6)
 
 def split_trace_into3():
     length = 400000
@@ -292,48 +309,65 @@ def create_cache_traces_for_ramulator2():
         # 10000,
         # 50000,
         # 100000,
-        800000,
+        # 800000,
+        60000,
         # 1000000,
         # 1500000,
     ]
     alternant = True
-    replace_with_rowclone = True
-    for case in range(6):
-        trace_file = "inputs/case{}.trace".format(case)
-        output_dir = "output/convert/case{}/".format(case)
-        for limit in trace_count:
-            # 1.convert row request to cache line request
-            # row_clone_count, total_request, traces, row_requests = (
-            #     convert_to_rowclone_trace(trace_file, limit, alternant)
-            # )
-            row_clone_count, total_request, traces, row_requests = convert_to_cacheline(
-                trace_file, limit, alternant, replace_with_rowclone
-            )
-            print(
-                "row clone request is {}, total request is {}".format(
-                    row_clone_count, total_request
+    for baseline in ["c","m","rr"]:
+        if  baseline == "c":
+            replace_with_rowclone = False
+            mode = "unmap"
+        elif baseline =="m":
+            replace_with_rowclone = True
+            mode = "unmap"
+        elif baseline =="rr":
+            replace_with_rowclone = True
+            mode = "map"
+        else:
+            raise Exception("error baseline!")
+        
+        output_dir = "output/convert/{}_cases/".format(baseline)
+
+        for case in range(6):
+            trace_file = "inputs/extend4/{}4_case{}.trace".format(mode,case)
+            # output_dir = "output/convert/{}_case{}/".format(mode,case)
+
+            for limit in trace_count:
+                # 1.convert row request to cache line request
+                # row_clone_count, total_request, traces, row_requests = (
+                #     convert_to_rowclone_trace(trace_file, limit, alternant)
+                # )
+                row_clone_count, total_request, traces, row_requests, error_row_clone = convert_to_cacheline(
+                    trace_file, limit, alternant, replace_with_rowclone
                 )
-            )
-            # # 2. save row request to file
-            # ah.save_to_file(
-            #     row_requests,
-            #     output_dir + "case{}_row_to_bytes_raw_data.txt".format(case),
-            # )
-            # # 3. convert cache line trace to block level
-            # ah.traces_array_to_block(
-            #     traces, output_dir + "case{}_cache_block_raw_data.txt".format(case)
-            # )
-            # # 4. save the final trace
-            if replace_with_rowclone:
-                pre = "rowclone_"
-            else:
-                pre = "norowclone_"
-            output_file = (
-                pre + "case{}_alternant_mode.trace"
-                if alternant
-                else pre + "case{}_consecutive_mode.trace"
-            )
-            ah.save_to_file(traces, output_dir + output_file.format(case))
+                print(
+                    "row clone request is {}, total request is {}, error row clone is {}".format(
+                        row_clone_count, total_request,error_row_clone
+                    )
+                )
+                # # 2. save row request to file
+                # ah.save_to_file(
+                #     row_requests,
+                #     output_dir + "case{}_row_to_bytes_raw_data.txt".format(case),
+                # )
+                # # 3. convert cache line trace to block level
+                # ah.traces_array_to_block(
+                #     traces, output_dir + "{}_case{}_cache_block_raw_data.txt".format(mode,case)
+                # )
+                # # 4. save the final trace
+                # if replace_with_rowclone:
+                #     pre = "rowclone_"
+                # else:
+                #     pre = "norowclone_"
+                # output_file = (
+                #     pre + "case{}_alternant_mode.trace"
+                #     if alternant
+                #     else pre + "case{}_consecutive_mode.trace"
+                # )
+                outfile = "{}_case{}.trace".format(baseline,case)
+                ah.save_to_file(traces, output_dir + outfile)
 
 
 # split_trace_into3()
