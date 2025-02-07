@@ -33,7 +33,7 @@ def energy():
     bg_pre_cycles = (
         (tRCD + 64 * tCCD + tRTP) * 2 + tRCD + 64 * tCCD + tWL + tWR + BL + 2
     )
-    bg_act_cycles = (
+    bg_act_cycles = (   
         (tRCD + 64 * tCCD + 2 * tRTP) * 2 + tRCD + 64 * tCCD + tWL + tWR + BL + 2 + tRP
     )
     total_energy = []

@@ -1,4 +1,6 @@
 import math
+
+import concurrent.futures
 import address_helper as ah
 
 
@@ -10,10 +12,11 @@ class CMD:
 
 class CMDLine:
 
-    def __init__(self, op, addr1, addr2) -> None:
+    def __init__(self, op, addr1, addr2, bubble_count=0) -> None:
         self.op = op
         self.addr1 = addr1
         self.addr2 = addr2
+        self.bubble_count = bubble_count
 
 
 class CMD4Window:
@@ -34,6 +37,7 @@ class CMD4Window:
         self.row_requests = []
         self.replace_with_rowclone = replace_with_rowclone
         self.error_row_clone = 0
+
     def is_full(self) -> bool:
         return len(self.win) >= self.cap
 
@@ -81,23 +85,26 @@ class CMD4Window:
                 cache_lines.append("0 -1 {}".format(wr_cl))
         return cache_lines
 
-    def simple_split_to64(row: CMDLine, dma:bool=False):
+    def simple_split_to64(row: CMDLine, dma: bool = False):
         cache_lines = []
         if row.op == CMD.READ:
             addr = row.addr1
         else:
             addr = row.addr2
         for cl in range(64):
+            bubble_count = 0
+            if cl == 0:
+                bubble_count = row.bubble_count
             rd_cl = (addr & ~((1 << CMD4Window.row_bits) - 1)) + (
                 cl << CMD4Window.tx_offset
             )
             if row.op == CMD.READ:
-                cache_lines.append("0 {}".format(rd_cl))
+                cache_lines.append(f"{bubble_count} {rd_cl}")
             else:
                 if dma:
-                    cache_lines.append("0 -2 {}".format(rd_cl))
+                    cache_lines.append(f"{bubble_count} -2 {rd_cl}")
                 else:
-                    cache_lines.append("0 -1 {}".format(rd_cl))
+                    cache_lines.append(f"{bubble_count} -1 {rd_cl}")
         return cache_lines
 
     def is_copy_window(self):
@@ -132,14 +139,14 @@ class CMD4Window:
         # if yes, then check if we can replace with a rowclone
         rd_addr = self.win[1].addr1
         wr_addr = self.win[2].addr2
-        self.extend_traces(CMD4Window.simple_split_to64(self.win[0],True))
+        self.extend_traces(CMD4Window.simple_split_to64(self.win[0], True))
         if (
             self.replace_with_rowclone
             and rd_addr >> self.subarray_mask_bits == wr_addr >> self.subarray_mask_bits
         ):
             # replace with a rowclone command
             if rd_addr == wr_addr:
-                self.error_row_clone+=1
+                self.error_row_clone += 1
             else:
                 self.traces.append("0 {} {}".format(rd_addr, wr_addr))
                 self.row_clone_count += 1
@@ -161,6 +168,49 @@ class CMD4Window:
             self.handle_in_normal_mode()
 
 
+def bulk_convert_to_cacheline(
+    traces: list,
+    start,
+    step,
+    limit: int,
+    alternative: bool,
+    replace_with_rowclone: bool,
+):
+    slide_window = CMD4Window(
+        target=limit,
+        alternative=alternative,
+        replace_with_rowclone=replace_with_rowclone,
+    )
+    tail = min(start + step, len(traces))
+    index = start
+    while index < tail:
+        while not slide_window.is_full():
+            try:
+                cmd = traces[index]
+            except Exception as ex:
+                print("error!")
+            index += 1
+            arr = cmd.split()
+            bubble_count = int(arr[0])
+            if len(arr) == 2:
+                line = CMDLine(CMD.READ, ah.mask_address(int(arr[1])), -1, bubble_count)
+            else:
+                line = CMDLine(
+                    CMD.WRITE, -1, ah.mask_address(int(arr[2])), bubble_count
+                )
+            slide_window.add(line)
+            if index == tail:
+                break
+        slide_window.handle()
+    return (
+        slide_window.row_clone_count,
+        len(slide_window.row_requests),
+        slide_window.traces,
+        slide_window.row_requests,
+        slide_window.error_row_clone,
+    )
+
+
 def convert_to_cacheline(
     file_path: str, limit: int, alternative: bool, replace_with_rowclone: bool
 ):
@@ -171,6 +221,7 @@ def convert_to_cacheline(
     )
     with open(file_path, "r") as file:
         while True:
+            bubble_count = 0
             while not slide_window.is_full():
                 if slide_window.is_finished():
                     break
@@ -179,10 +230,20 @@ def convert_to_cacheline(
                     if cmd == "":
                         break
                     arr = cmd.split()
-                    if len(arr) == 2:
-                        line = CMDLine(CMD.READ, ah.mask_address(int(arr[1])), -1)
+                    if len(arr) == 1:
+                        # this is a bubble count, continue to next line
+                        bubble_count = int(arr[0])
+                        continue
+                    elif len(arr) == 2:
+                        line = CMDLine(
+                            CMD.READ, ah.mask_address(int(arr[1])), -1, bubble_count
+                        )
                     else:
-                        line = CMDLine(CMD.WRITE, -1, ah.mask_address(int(arr[2])))
+                        line = CMDLine(
+                            CMD.WRITE, -1, ah.mask_address(int(arr[2])), bubble_count
+                        )
+                    # reset bubble count to 0
+                    bubble_count = 0
                     slide_window.add(line)
                 else:
                     break
@@ -190,12 +251,14 @@ def convert_to_cacheline(
             slide_window.handle()
             if slide_window.is_finished():
                 break
+            if not file.readable():
+                break
     return (
         slide_window.row_clone_count,
         len(slide_window.row_requests),
         slide_window.traces,
         slide_window.row_requests,
-        slide_window.error_row_clone
+        slide_window.error_row_clone,
     )
 
 
@@ -268,24 +331,29 @@ def convert_to4line(file_path: str, output_path: str):
 
 def batch_convert_to4line():
     for idx in range(6):
-        for mode in ["map","unmap"]:
+        for mode in ["map", "unmap"]:
             convert_to4line(
-                "inputs/{}_case{}.trace".format(mode,idx),
-                "inputs/extend4/{}4_case{}.trace".format(mode,idx),
+                "inputs/{}_case{}.trace".format(mode, idx),
+                "inputs/extend4/{}4_case{}.trace".format(mode, idx),
             )
+
+
 # batch_convert_to4line()
-def slice_file_intoX(file_path:str,pre:str,step:int,num:int):
-        # file_path = "inputs/parent_case{}.trace".format(idx)
-    with open(file_path,"r") as file:
+def slice_file_intoX(file_path: str, pre: str, step: int, num: int):
+    # file_path = "inputs/parent_case{}.trace".format(idx)
+    with open(file_path, "r") as file:
         for idx in range(num):
-            slide_file_path = "inputs/{}_slide{}.trace".format(pre,idx)
+            slide_file_path = "inputs/{}_slide{}.trace".format(pre, idx)
             count = 0
             with open(slide_file_path, "w") as out:
-                    while file.readable() and count < step:
-                        out.write(file.readline())
-                        count += 1
+                while file.readable() and count < step:
+                    out.write(file.readline())
+                    count += 1
+
+
 # for file in ["parent_case1.trace","parent_case2.trace","remap.trace"]:
 #     slice_file_intoX("inputs/"+file,file,30000,6)
+
 
 def split_trace_into3():
     length = 400000
@@ -318,23 +386,23 @@ def create_cache_traces_for_ramulator2():
         # 1500000,
     ]
     alternant = True
-    for baseline in ["c","m","rr"]:
-        if  baseline == "c":
+    for baseline in ["c", "m", "rr"]:
+        if baseline == "c":
             replace_with_rowclone = False
             mode = "unmap"
-        elif baseline =="m":
+        elif baseline == "m":
             replace_with_rowclone = True
             mode = "unmap"
-        elif baseline =="rr":
+        elif baseline == "rr":
             replace_with_rowclone = True
             mode = "map"
         else:
             raise Exception("error baseline!")
-        
+
         output_dir = "output/convert/{}_cases/".format(baseline)
 
         for case in range(6):
-            trace_file = "inputs/extend4/{}4_case{}.trace".format(mode,case)
+            trace_file = "inputs/extend4/{}4_case{}.trace".format(mode, case)
             # output_dir = "output/convert/{}_case{}/".format(mode,case)
 
             for limit in trace_count:
@@ -342,12 +410,18 @@ def create_cache_traces_for_ramulator2():
                 # row_clone_count, total_request, traces, row_requests = (
                 #     convert_to_rowclone_trace(trace_file, limit, alternant)
                 # )
-                row_clone_count, total_request, traces, row_requests, error_row_clone = convert_to_cacheline(
+                (
+                    row_clone_count,
+                    total_request,
+                    traces,
+                    row_requests,
+                    error_row_clone,
+                ) = convert_to_cacheline(
                     trace_file, limit, alternant, replace_with_rowclone
                 )
                 print(
                     "row clone request is {}, total request is {}, error row clone is {}".format(
-                        row_clone_count, total_request,error_row_clone
+                        row_clone_count, total_request, error_row_clone
                     )
                 )
                 # # 2. save row request to file
@@ -369,10 +443,91 @@ def create_cache_traces_for_ramulator2():
                 #     if alternant
                 #     else pre + "case{}_consecutive_mode.trace"
                 # )
-                outfile = "{}_case{}.trace".format(baseline,case)
+                outfile = "{}_case{}.trace".format(baseline, case)
                 ah.save_to_file(traces, output_dir + outfile)
 
 
+def add_line_at_head(file_path, content):
+    with open(file_path, "r+") as file:
+        # Read the current content of the file
+        content = file.read()
+        # Move the file pointer to the beginning
+        file.seek(0)
+        # Write the new line first, followed by the existing content
+        file.write(content + "\n" + content)
+
+
 # split_trace_into3()
-# batch_convert_to4line()
-create_cache_traces_for_ramulator2()
+def replace_bubble_count_expand4(file_path):
+    # add_line_at_head(file_path, "0")
+    assembles = []
+    with open(file_path, "r") as file:
+        bubble_count = "0"
+        while file.readable():
+            # assert we can read 3 lines at once
+            bubble_count = file.readline().strip("\n")
+            read = file.readline().strip("\n")
+            if read == "":
+                break
+            write = file.readline().strip("\n")
+            wr_bf = bubble_count + " -1 " + read.split()[1]
+            rd_af = "0 " + write.split()[2]
+            assembles.append(wr_bf)
+            assembles.append(read)
+            assembles.append(write)
+            assembles.append(rd_af)
+    return assembles
+
+
+def rb_all_in_one(path_file):
+    # first, we have original trace like: we have to replace 0 with bubble count
+    # ----------------------------------
+    #        0------row1
+    #        0------ -1 ------row2
+    #        bubble_count
+    #        0------row3
+    #        0------ -1 ------row4
+    #        bubble_count
+    bubbled4 = replace_bubble_count_expand4(path_file)
+    output_dir = "./output/"
+    bubbled4_file = output_dir + "bubbled4.trace"
+    ah.save_to_file(bubbled4, bubbled4_file)
+    # Now we have intermediate trace like: then we slice into cache line request
+    #        bubble_count--- -1 ---row1
+    #        0------------row1
+    #        0------------ -1 -----row2
+    #        0------------row2
+    #        bubble_count
+    # clear the file
+    # with open(output_path, "w") as file:
+    #     pass
+    replace_with_rowclone = True
+    step = 500000
+    start = 0
+    chip = 1
+    write_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    while start < len(bubbled4):
+        (
+            row_clone_count,
+            total_request,
+            traces,
+            _,
+            error_row_clone,
+        ) = bulk_convert_to_cacheline(
+            bubbled4, start, step, 100000000, False, replace_with_rowclone
+        )
+        print(
+            f"slice from {start} :row clone request is {row_clone_count}, total request is {total_request}, error row clone is {error_row_clone}"
+        )
+        output_path = output_dir + f"slice{chip}.trace"
+        chip += 1
+        write_executor.submit(ah.save_to_file, traces, output_path)
+        # ah.save_to_file(traces, output_path)
+        start += step
+    write_executor.shutdown(wait=True)
+    return
+
+
+trace_path = "./inputs/baseline.trace"
+rb_all_in_one(trace_path)
+# create_cache_traces_for_ramulator2()

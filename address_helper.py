@@ -124,13 +124,15 @@ def assemble_address(values):
     return address
 
 
-def save_to_file(array, file_path):
+def save_to_file(array, file_path, append = False):
     directory = os.path.dirname(file_path)
 
     if directory and not os.path.exists(directory):
         os.makedirs(directory)
-
-    with open(file_path, "w") as file:
+    wr_pattern  = "w"
+    if append:
+        wr_pattern = "a"
+    with open(file_path, wr_pattern) as file:
         for line in array:
             file.write(str(line) + "\n")
 
